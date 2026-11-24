@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Examen blanc · Claude Certified Architect</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Accueil -->
+  <main id="home" class="screen" hidden>
+    <div class="home-card">
+      <p class="home-kicker">Examen blanc</p>
+      <h1>Claude Certified Architect</h1>
+      <p class="home-lead">60 questions à choix unique, réparties sur 4 scénarios. Tu peux revenir sur n'importe quelle question avant de soumettre ; les résultats s'affichent seulement à la fin.</p>
+      <dl class="home-facts">
+        <div><dt>Questions</dt><dd>60</dd></div>
+        <div><dt>Durée conseillée</dt><dd>120 min</dd></div>
+        <div><dt>Seuil de réussite</dt><dd>72 %</dd></div>
+      </dl>
+      <ul class="home-scenarios" id="home-scenarios"></ul>
+      <p class="home-note">Le chrono démarre au lancement. Il ne bloque rien : une fois les 120 minutes écoulées, il passe en négatif. Clique dessus pour le mettre en pause.</p>
+      <div class="home-actions" id="home-actions"></div>
+    </div>
+  </main>
+
+  <!-- Examen -->
+  <div id="exam" class="screen exam" hidden>
+    <aside class="sidebar" id="sidebar" aria-label="Navigation des questions">
+      <div class="sidebar-head">
+        <span class="sidebar-title">Questions</span>
+        <span class="sidebar-count" id="answered-count"></span>
+      </div>
+      <div class="progress" aria-hidden="true"><div class="progress-bar" id="progress-bar"></div></div>
+      <nav id="qnav"></nav>
+      <div class="legend">
+        <span><i class="dot dot-todo"></i>À faire</span>
+        <span><i class="dot dot-done"></i>Répondue</span>
+        <span><i class="dot dot-current"></i>En cours</span>
+      </div>
+    </aside>
+
+    <section class="main">
+      <header class="topbar">
+        <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Afficher la liste des questions" aria-expanded="false">☰</button>
+        <div class="topbar-pos" id="topbar-pos"></div>
+        <button class="timer" id="timer" type="button" aria-live="off" title="Mettre en pause">
+          <span class="timer-icon" id="timer-icon" aria-hidden="true"></span>
+          <span class="timer-value" id="timer-value">120:00</span>
+          <span class="timer-label" id="timer-label">restant</span>
+        </button>
+      </header>
+
+      <article class="question" id="question">
+        <p class="q-scenario" id="q-scenario"></p>
+        <h2 class="q-number" id="q-number"></h2>
+        <p class="q-situation" id="q-situation"></p>
+        <p class="q-ask" id="q-ask"></p>
+        <div class="options" id="options" role="radiogroup"></div>
+      </article>
+
+      <footer class="q-nav">
+        <button class="btn btn-ghost" id="prev">Précédente</button>
+        <span class="kbd-hint">Touches 1 à 4 pour répondre, ← → pour naviguer</span>
+        <button class="btn btn-primary" id="next">Suivante</button>
+        <button class="btn btn-submit" id="submit" hidden>Soumettre l'examen</button>
+      </footer>
+
+      <div class="pause-overlay" id="pause-overlay" hidden>
+        <div class="pause-box">
+          <p class="pause-title">Examen en pause</p>
+          <p class="pause-time" id="pause-time"></p>
+          <button class="btn btn-primary" id="resume">Reprendre</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Résultats -->
+  <main id="results" class="screen results" hidden>
+    <div class="results-inner">
+      <section class="score-block">
+        <p class="verdict" id="verdict"></p>
+        <div class="score-main">
+          <span class="score-pct" id="score-pct"></span>
+          <span class="score-raw" id="score-raw"></span>
+        </div>
+        <div class="score-gauge" aria-hidden="true">
+          <div class="score-gauge-fill" id="score-fill"></div>
+          <div class="score-gauge-mark" style="left:72%"><span>72 %</span></div>
+        </div>
+        <dl class="score-facts" id="score-facts"></dl>
+      </section>
+
+      <section class="by-scenario">
+        <h2>Par scénario</h2>
+        <div id="scenario-scores"></div>
+      </section>
+
+      <section class="review">
+        <div class="review-head">
+          <h2>Correction</h2>
+          <div class="filters" role="tablist" id="filters">
+            <button data-filter="all" class="active">Toutes</button>
+            <button data-filter="wrong">Erreurs</button>
+            <button data-filter="blank">Sans réponse</button>
+          </div>
+        </div>
+        <ol class="review-list" id="review-list"></ol>
+      </section>
+
+      <div class="results-actions">
+        <button class="btn btn-primary" id="restart">Recommencer l'examen</button>
+      </div>
+    </div>
+  </main>
+
+  <!-- Confirmation -->
+  <div class="modal" id="modal" hidden role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-box">
+      <h3 id="modal-title"></h3>
+      <p id="modal-text"></p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="modal-cancel">Revenir à l'examen</button>
+        <button class="btn btn-submit" id="modal-ok">Soumettre</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="questions.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
