@@ -145,9 +145,32 @@
     window.scrollTo(0, 0);
   }
 
+  // ---------- Answers (single or multiple response) ----------
+  const DOMAIN_NAMES = {
+    D1: "Domain 1: Agentic Architecture & Orchestration",
+    D2: "Domain 2: Tool Design & MCP Integration",
+    D3: "Domain 3: Claude Code Configuration & Workflows",
+    D4: "Domain 4: Prompt Engineering & Structured Output",
+    D5: "Domain 5: Context Management & Reliability",
+  };
+  const need = q => q.select || 1;
+  const correctIds = q => Array.isArray(q.correct) ? q.correct : [q.correct];
+  const picked = (q, answers) => {
+    const a = answers[q.n];
+    return a == null ? [] : Array.isArray(a) ? a : [a];
+  };
+  const isComplete = (q, answers) => picked(q, answers).length === need(q);
+  const isCorrect = (q, answers) => {
+    const p = picked(q, answers), c = correctIds(q);
+    return p.length === c.length && c.every(id => p.includes(id));
+  };
+  const answeredCount = (qs, answers) => qs.filter(q => isComplete(q, answers)).length;
+
   function scoreOf(qs, answers) {
-    return qs.filter(q => answers[q.n] === q.correct).length;
+    return qs.filter(q => isCorrect(q, answers)).length;
   }
+
+  const multiCount = e => e.questions.filter(q => need(q) > 1).length;
 
   function renderHome() {
     if (exam) { stopClock(); save(); }
@@ -157,7 +180,7 @@
       const secs = sectionsOf(e.questions);
       let status = "Pas encore passé", actions = `<button class="btn btn-primary" data-act="start" data-id="${e.id}">Commencer</button>`;
       if (st && st.status === "exam" && st.order) {
-        status = `En cours : ${Object.keys(st.answers).length} / ${e.questions.length} réponses, ${fmtDuration(st.elapsed)} écoulées`;
+        status = `En cours : ${answeredCount(e.questions, st.answers)} / ${e.questions.length} réponses, ${fmtDuration(st.elapsed)} écoulées`;
         actions = `<button class="btn btn-primary" data-act="resume" data-id="${e.id}">Reprendre</button>
                    <button class="btn btn-ghost" data-act="start" data-id="${e.id}">Recommencer à zéro</button>`;
       } else if (st && st.status === "results") {
@@ -171,6 +194,7 @@
           <h2>${esc(e.title)}</h2>
           <span class="exam-card-count">${e.questions.length} questions</span>
         </div>
+        ${e.note ? `<p class="exam-card-note">${esc(e.note)}${multiCount(e) ? ` ${multiCount(e)} questions à 2 réponses.` : ""}</p>` : ""}
         <ul class="exam-card-sections">${secs.map(s => {
           const n = e.questions.filter(q => q.scenario === s).length;
           return `<li><span>${esc(s)}</span><span>${n}</span></li>`;
@@ -224,12 +248,12 @@
   }
 
   function renderSidebar() {
-    const answered = Object.keys(state.answers).length;
+    const answered = answeredCount(QUESTIONS, state.answers);
     $("answered-count").textContent = `${answered} / ${TOTAL} répondues`;
     $("progress-bar").style.width = `${(answered / TOTAL) * 100}%`;
     document.querySelectorAll(".qbtn").forEach(b => {
       const i = +b.dataset.i, q = QUESTIONS[i];
-      const done = state.answers[q.n] != null;
+      const done = isComplete(q, state.answers);
       b.classList.toggle("done", done);
       b.classList.toggle("current", i === state.current);
       b.setAttribute("aria-current", i === state.current ? "step" : "false");
@@ -250,14 +274,20 @@
     $("q-ask").hidden = !q.question;
     $("topbar-pos").textContent = `Question ${i + 1} sur ${TOTAL}`;
 
+    const multi = need(q) > 1;
+    const mine = picked(q, state.answers);
+    $("q-select").hidden = !multi;
+    $("q-select").textContent = multi ? `Sélectionne ${need(q)} réponses (${mine.length}/${need(q)})` : "";
     const box = $("options");
     box.innerHTML = "";
+    box.setAttribute("role", multi ? "group" : "radiogroup");
+    box.classList.toggle("multi", multi);
     state.order[i].forEach((optId, pos) => {
       const opt = q.options.find(o => o.id === optId);
       const btn = document.createElement("button");
-      const selected = state.answers[q.n] === optId;
+      const selected = mine.includes(optId);
       btn.className = "opt" + (selected ? " selected" : "");
-      btn.setAttribute("role", "radio");
+      btn.setAttribute("role", multi ? "checkbox" : "radio");
       btn.setAttribute("aria-checked", selected ? "true" : "false");
       btn.innerHTML = `<span class="opt-letter">${LETTERS[pos]}</span><span class="opt-text">${esc(opt.text)}</span>`;
       btn.onclick = () => choose(optId);
@@ -272,7 +302,15 @@
   }
 
   function choose(optId) {
-    state.answers[QUESTIONS[state.current].n] = optId;
+    const q = QUESTIONS[state.current];
+    if (need(q) > 1) {
+      let sel = picked(q, state.answers).slice();
+      if (sel.includes(optId)) sel = sel.filter(id => id !== optId);
+      else { sel.push(optId); if (sel.length > need(q)) sel.shift(); }
+      if (sel.length) state.answers[q.n] = sel; else delete state.answers[q.n];
+    } else {
+      state.answers[q.n] = optId;
+    }
     save();
     renderQuestion();
   }
@@ -287,10 +325,10 @@
 
   // ---------- Submit ----------
   function askSubmit() {
-    const blank = TOTAL - Object.keys(state.answers).length;
+    const blank = TOTAL - answeredCount(QUESTIONS, state.answers);
     $("modal-title").textContent = "Soumettre l'examen ?";
     $("modal-text").textContent = blank
-      ? `${blank} question${blank > 1 ? "s restent" : " reste"} sans réponse et ${blank > 1 ? "seront comptées" : "sera comptée"} fausse${blank > 1 ? "s" : ""}. Tu ne pourras plus modifier tes réponses.`
+      ? `${blank} question${blank > 1 ? "s restent" : " reste"} sans réponse complète et ${blank > 1 ? "seront comptées" : "sera comptée"} fausse${blank > 1 ? "s" : ""}. Tu ne pourras plus modifier tes réponses.`
       : "Toutes les questions ont une réponse. Tu ne pourras plus modifier tes réponses.";
     $("modal").hidden = false;
     $("modal-ok").focus();
@@ -314,7 +352,7 @@
   function renderResults() {
     stopClock();
     const correct = scoreOf(QUESTIONS, state.answers);
-    const blank = QUESTIONS.filter(q => state.answers[q.n] == null).length;
+    const blank = QUESTIONS.filter(q => picked(q, state.answers).length === 0).length;
     const wrong = TOTAL - correct - blank;
     const pct = Math.round((correct / TOTAL) * 1000) / 10;
     const pass = pct >= PASS_PCT;
@@ -346,6 +384,18 @@
         <span class="sc-val">${ok}/${qs.length} · ${p} %</span></div>`;
     }).join("");
 
+    const domainsOf = q => (q.domain || "").split(/[,/]/).map(d => d.trim()).filter(Boolean);
+    const doms = Object.keys(DOMAIN_NAMES).filter(d => QUESTIONS.some(q => domainsOf(q).includes(d)));
+    $("domain-block").hidden = !doms.length;
+    $("domain-scores").innerHTML = doms.map(d => {
+      const qs = QUESTIONS.filter(q => domainsOf(q).includes(d));
+      const ok = scoreOf(qs, state.answers);
+      const p = Math.round((ok / qs.length) * 100);
+      return `<div class="sc-row"><span class="sc-name">${esc(DOMAIN_NAMES[d])}</span>
+        <div class="sc-bar"><div class="${p < PASS_PCT ? "low" : ""}" style="width:${p}%"></div></div>
+        <span class="sc-val">${ok}/${qs.length} · ${p}\u00a0%</span></div>`;
+    }).join("");
+
     reviewFilter = "all";
     renderReview();
     show("results");
@@ -355,20 +405,20 @@
   function remapLetters(text, i) {
     const order = state.order[i];
     const L = id => LETTERS[order.indexOf(id)] || id;
-    return text
-      .replace(/\b(Options?) ([A-D])((?:,? (?:and|or) |, )([A-D]))?/g, (m, w, a, mid, b) => {
-        if (!b) return `${w} ${L(a)}`;
-        const [x, y] = [L(a), L(b)].sort();
-        return `${w} ${x}${mid.replace(b, "")}${y}`;
-      })
-      .replace(/\(([A-D])\)/g, (m, a) => `(${L(a)})`);
+    const VERBS = "is|are|was|overstates|overreaches|overclaims|repeats|renames|adds|fixes|wastes|substitutes|sounds|describe|describes";
+    const re = new RegExp(
+      "\\bOptions? [A-D](?:(?:,? (?:and|or) |, )[A-D])?" +   // Option B / Options A and C
+      "|\\([A-D]\\)" +                                        // (C)
+      "|\\b[A-D](?: and [A-D])?(?= (?:" + VERBS + ")\\b)",    // "D overstates", "B and D are"
+      "g");
+    return text.replace(re, m => m.replace(/[A-D]/g, L));
   }
 
   function renderReview() {
     document.querySelectorAll("#filters button").forEach(b => b.classList.toggle("active", b.dataset.filter === reviewFilter));
     const items = QUESTIONS.map((q, i) => {
-      const ans = state.answers[q.n];
-      const status = ans == null ? "blank" : ans === q.correct ? "ok" : "ko";
+      const ans = picked(q, state.answers);
+      const status = !ans.length ? "blank" : isCorrect(q, state.answers) ? "ok" : "ko";
       return { q, i, ans, status };
     }).filter(it => reviewFilter === "all" || (reviewFilter === "wrong" ? it.status === "ko" : it.status === "blank"));
 
@@ -381,16 +431,21 @@
       const letterOf = id => LETTERS[state.order[i].indexOf(id)];
       const textOf = id => q.options.find(o => o.id === id).text;
       const label = { ok: "Correct", ko: "Incorrect", blank: "Sans réponse" }[status];
+      const sortPos = ids => ids.slice().sort((x, y) => state.order[i].indexOf(x) - state.order[i].indexOf(y));
+      const lines = (ids, cls, label) => sortPos(ids).map(id =>
+        `<p class="rv-ans ${cls}"><b>${label} (${letterOf(id)}) :</b> ${esc(textOf(id))}</p>`).join("");
+      const corr = correctIds(q);
+      const multi = need(q) > 1;
       const userLine = status === "ko"
-        ? `<p class="rv-ans user-ko"><b>Ta réponse (${letterOf(ans)}) :</b> ${esc(textOf(ans))}</p>` : "";
+        ? lines(ans, "user-ko", multi ? "Ta sélection" : "Ta réponse") : "";
       const others = state.order[i].map((id, pos) => ({ id, pos }))
-        .filter(o => o.id !== q.correct && o.id !== ans)
+        .filter(o => !corr.includes(o.id) && !ans.includes(o.id))
         .map(o => `<li><b>${LETTERS[o.pos]}.</b> ${esc(textOf(o.id))}</li>`).join("");
       return `<li class="rv ${status}">
-        <div class="rv-head"><span class="rv-num">Question ${q.n} · ${esc(q.scenario)}</span><span class="rv-status">${label}</span></div>
-        <p class="rv-situation">${rich(q.situation)}${q.question ? ` <b>${esc(q.question)}</b>` : ""}</p>
+        <div class="rv-head"><span class="rv-num">Question ${q.n} · ${esc(q.scenario)}${multi ? " · 2 réponses" : ""}</span><span class="rv-status">${label}</span></div>
+        <p class="rv-situation">${multi ? `<b>(Select ${need(q) === 2 ? "TWO" : need(q)})</b> ` : ""}${rich(q.situation)}${q.question ? ` <b>${esc(q.question)}</b>` : ""}</p>
         ${userLine}
-        <p class="rv-ans correct"><b>Bonne réponse (${letterOf(q.correct)}) :</b> ${esc(textOf(q.correct))}</p>
+        ${lines(corr, "correct", multi ? "Bonne réponse" : "Bonne réponse")}
         <details class="rv-others"><summary>Autres options</summary><ul>${others}</ul></details>
         <p class="rv-why"><b>Pourquoi :</b> ${esc(remapLetters(q.explanation, i))}</p>
       </li>`;

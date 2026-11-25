@@ -340,3 +340,17 @@ code {
 .rv-others { margin: .2rem 0 0; font-size: .9rem; color: var(--muted); }
 .rv-others summary { cursor: pointer; padding: .2rem 0; }
 .rv-others ul { margin: .3rem 0 0; padding-left: 1.1rem; display: grid; gap: .3rem; }
+
+.exam-card-note { margin: -.4rem 0 1rem; font-size: .88rem; color: var(--muted); }
+.q-select {
+  display: inline-block;
+  margin: 0 0 1rem;
+  padding: .35rem .75rem;
+  border-radius: 6px;
+  background: #fff6d6;
+  border: 1px solid var(--sun);
+  color: var(--ink);
+  font-weight: 600;
+  font-size: .9rem;
+}
+.options.multi .opt-letter { border-radius: 6px; }
