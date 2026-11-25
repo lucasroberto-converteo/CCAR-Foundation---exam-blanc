@@ -1,44 +1,66 @@
 (() => {
   "use strict";
 
-  const QUESTIONS = window.QUESTIONS;
-  const TOTAL = QUESTIONS.length;
+  const EXAMS = window.EXAMS;
   const DURATION_MS = 120 * 60 * 1000;
   const PASS_PCT = 72;
-  const STORAGE_KEY = "ccar-exam-blanc-v1";
+  const KEY_PREFIX = "ccar-exam-blanc-v2:";
+  const LEGACY_KEY = "ccar-exam-blanc-v1"; // first version stored a single exam (the 60-question one)
   const LETTERS = ["A", "B", "C", "D"];
-
-  const SCENARIOS = [];
-  QUESTIONS.forEach(q => { if (!SCENARIOS.includes(q.scenario)) SCENARIOS.push(q.scenario); });
 
   const $ = id => document.getElementById(id);
 
-  // ---------- State ----------
-  let state = load() || freshState();
-  let runningSince = null; // timestamp (ms) when the timer was last resumed, not persisted
+  // ---------- Current exam ----------
+  let exam = null, QUESTIONS = [], TOTAL = 0, SECTIONS = [];
+  let state = null;
+  let runningSince = null; // when the timer was last resumed (not persisted)
   let tickHandle = null;
+
+  function sectionsOf(qs) {
+    const out = [];
+    qs.forEach(q => { if (!out.includes(q.scenario)) out.push(q.scenario); });
+    return out;
+  }
+
+  function selectExam(id) {
+    exam = EXAMS.find(e => e.id === id) || EXAMS[0];
+    QUESTIONS = exam.questions;
+    TOTAL = QUESTIONS.length;
+    SECTIONS = sectionsOf(QUESTIONS);
+    state = load(exam.id) || freshState();
+    try { localStorage.setItem(KEY_PREFIX + "last", exam.id); } catch (e) { /* ignore */ }
+  }
 
   function freshState() {
     return {
-      status: "home",          // home | exam | results
-      order: null,             // per question: shuffled array of option ids
-      answers: {},             // question n -> option id
-      current: 0,              // index in QUESTIONS
-      elapsed: 0,              // ms counted so far
+      status: "home",   // home | exam | results
+      order: null,      // per question index: shuffled option ids
+      answers: {},      // question n -> option id
+      current: 0,
+      elapsed: 0,
       paused: false,
       submittedAt: null,
     };
   }
 
-  function load() {
+  function load(id) {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(KEY_PREFIX + id);
       return raw ? JSON.parse(raw) : null;
     } catch (e) { return null; }
   }
 
   function save() {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, elapsed: elapsedNow() })); } catch (e) { /* storage unavailable */ }
+    if (!exam) return;
+    try { localStorage.setItem(KEY_PREFIX + exam.id, JSON.stringify({ ...state, elapsed: elapsedNow() })); } catch (e) { /* ignore */ }
+  }
+
+  function migrateLegacy() {
+    try {
+      const old = localStorage.getItem(LEGACY_KEY);
+      if (old && !localStorage.getItem(KEY_PREFIX + EXAMS[0].id)) localStorage.setItem(KEY_PREFIX + EXAMS[0].id, old);
+      if (old) localStorage.removeItem(LEGACY_KEY);
+    } catch (e) { /* ignore */ }
   }
 
   function shuffle(arr) {
@@ -58,7 +80,7 @@
   function startClock() {
     if (!state.paused && !runningSince) runningSince = Date.now();
     clearInterval(tickHandle);
-    tickHandle = setInterval(() => { renderTimer(); }, 250);
+    tickHandle = setInterval(renderTimer, 250);
     renderTimer();
   }
 
@@ -115,7 +137,6 @@
     $("pause-overlay").hidden = !state.paused;
     renderTimer();
     save();
-    if (!state.paused) $("question").focus?.();
   }
 
   // ---------- Screens ----------
@@ -124,31 +145,54 @@
     window.scrollTo(0, 0);
   }
 
-  function renderHome() {
-    const ul = $("home-scenarios");
-    ul.innerHTML = SCENARIOS.map(s => {
-      const n = QUESTIONS.filter(q => q.scenario === s).length;
-      return `<li><span>${esc(s)}</span><span>${n} questions</span></li>`;
-    }).join("");
+  function scoreOf(qs, answers) {
+    return qs.filter(q => answers[q.n] === q.correct).length;
+  }
 
-    const actions = $("home-actions");
-    const inProgress = state.status === "exam" && state.order;
-    if (inProgress) {
-      const answered = Object.keys(state.answers).length;
-      actions.innerHTML = `
-        <p class="resume-info">Un examen est en cours : ${answered} / ${TOTAL} réponses, ${fmtDuration(state.elapsed)} écoulées.</p>
-        <button class="btn btn-primary" id="btn-resume">Reprendre l'examen</button>
-        <button class="btn btn-ghost" id="btn-new">Recommencer à zéro</button>`;
-      $("btn-resume").onclick = () => enterExam();
-      $("btn-new").onclick = () => { stopClock(); state = freshState(); startExam(); };
-    } else {
-      actions.innerHTML = `<button class="btn btn-primary" id="btn-start">Commencer l'examen</button>`;
-      $("btn-start").onclick = startExam;
-    }
+  function renderHome() {
+    if (exam) { stopClock(); save(); }
+    const list = $("exam-list");
+    list.innerHTML = EXAMS.map(e => {
+      const st = load(e.id);
+      const secs = sectionsOf(e.questions);
+      let status = "Pas encore passé", actions = `<button class="btn btn-primary" data-act="start" data-id="${e.id}">Commencer</button>`;
+      if (st && st.status === "exam" && st.order) {
+        status = `En cours : ${Object.keys(st.answers).length} / ${e.questions.length} réponses, ${fmtDuration(st.elapsed)} écoulées`;
+        actions = `<button class="btn btn-primary" data-act="resume" data-id="${e.id}">Reprendre</button>
+                   <button class="btn btn-ghost" data-act="start" data-id="${e.id}">Recommencer à zéro</button>`;
+      } else if (st && st.status === "results") {
+        const pct = Math.round((scoreOf(e.questions, st.answers) / e.questions.length) * 100);
+        status = `Dernier résultat : ${pct} % (${pct >= PASS_PCT ? "réussi" : "échoué"})`;
+        actions = `<button class="btn btn-primary" data-act="start" data-id="${e.id}">Recommencer</button>
+                   <button class="btn btn-ghost" data-act="results" data-id="${e.id}">Voir la correction</button>`;
+      }
+      return `<li class="exam-card">
+        <div class="exam-card-head">
+          <h2>${esc(e.title)}</h2>
+          <span class="exam-card-count">${e.questions.length} questions</span>
+        </div>
+        <ul class="exam-card-sections">${secs.map(s => {
+          const n = e.questions.filter(q => q.scenario === s).length;
+          return `<li><span>${esc(s)}</span><span>${n}</span></li>`;
+        }).join("")}</ul>
+        <p class="exam-card-status">${esc(status)}</p>
+        <div class="exam-card-actions">${actions}</div>
+        <p class="exam-card-source">Source : <a href="${e.source}" target="_blank" rel="noopener">${esc(e.author)}</a></p>
+      </li>`;
+    }).join("");
+    list.querySelectorAll("button[data-act]").forEach(b => {
+      b.onclick = () => {
+        selectExam(b.dataset.id);
+        if (b.dataset.act === "start") startExam();
+        else if (b.dataset.act === "resume") enterExam();
+        else renderResults();
+      };
+    });
     show("home");
   }
 
   function startExam() {
+    stopClock();
     state = freshState();
     state.status = "exam";
     state.order = QUESTIONS.map(q => shuffle(q.options.map(o => o.id)));
@@ -157,6 +201,8 @@
   }
 
   function enterExam() {
+    runningSince = null;
+    $("exam-name").textContent = exam.title;
     buildSidebar();
     show("exam");
     $("pause-overlay").hidden = !state.paused;
@@ -167,7 +213,7 @@
   // ---------- Sidebar ----------
   function buildSidebar() {
     const nav = $("qnav");
-    nav.innerHTML = SCENARIOS.map(s => {
+    nav.innerHTML = SECTIONS.map(s => {
       const btns = QUESTIONS.map((q, i) => q.scenario === s
         ? `<button class="qbtn" data-i="${i}" aria-label="Question ${q.n}">${q.n}</button>` : "").join("");
       return `<div class="scen-group"><p class="scen-name">${esc(s)}</p><div class="qgrid">${btns}</div></div>`;
@@ -199,8 +245,9 @@
     const i = state.current, q = QUESTIONS[i];
     $("q-scenario").textContent = q.scenario;
     $("q-number").textContent = `Question ${q.n}`;
-    $("q-situation").innerHTML = esc(q.situation);
-    $("q-ask").innerHTML = esc(q.question);
+    $("q-situation").innerHTML = rich(q.situation);
+    $("q-ask").innerHTML = rich(q.question);
+    $("q-ask").hidden = !q.question;
     $("topbar-pos").textContent = `Question ${i + 1} sur ${TOTAL}`;
 
     const box = $("options");
@@ -225,8 +272,7 @@
   }
 
   function choose(optId) {
-    const q = QUESTIONS[state.current];
-    state.answers[q.n] = optId;
+    state.answers[QUESTIONS[state.current].n] = optId;
     save();
     renderQuestion();
   }
@@ -266,15 +312,17 @@
   let reviewFilter = "all";
 
   function renderResults() {
-    const correct = QUESTIONS.filter(q => state.answers[q.n] === q.correct).length;
+    stopClock();
+    const correct = scoreOf(QUESTIONS, state.answers);
     const blank = QUESTIONS.filter(q => state.answers[q.n] == null).length;
     const wrong = TOTAL - correct - blank;
     const pct = Math.round((correct / TOTAL) * 1000) / 10;
     const pass = pct >= PASS_PCT;
 
-    $("verdict").textContent = pass ? "Réussi" : "Échoué, seuil de 72\u00a0% non atteint";
+    $("results-exam").textContent = exam.title;
+    $("verdict").textContent = pass ? "Réussi" : "Échoué, seuil de 72 % non atteint";
     $("verdict").className = "verdict " + (pass ? "pass" : "fail");
-    $("score-pct").textContent = `${String(pct).replace(".", ",")}\u00a0%`;
+    $("score-pct").textContent = `${String(pct).replace(".", ",")} %`;
     $("score-raw").textContent = `${correct} / ${TOTAL} bonnes réponses`;
     const fill = $("score-fill");
     fill.className = "score-gauge-fill" + (pass ? "" : " fail");
@@ -288,17 +336,32 @@
       <div><dt>Sans réponse</dt><dd>${blank}</dd></div>
       <div><dt>Temps</dt><dd>${fmtDuration(state.elapsed)}${over > 0 ? ` <small style="color:#ffb4a8;font-weight:500">(+${fmtDuration(over)})</small>` : ""}</dd></div>`;
 
-    $("scenario-scores").innerHTML = SCENARIOS.map(s => {
+    $("sections-title").textContent = SECTIONS[0].startsWith("Domain") ? "Par domaine" : "Par scénario";
+    $("scenario-scores").innerHTML = SECTIONS.map(s => {
       const qs = QUESTIONS.filter(q => q.scenario === s);
-      const ok = qs.filter(q => state.answers[q.n] === q.correct).length;
+      const ok = scoreOf(qs, state.answers);
       const p = Math.round((ok / qs.length) * 100);
       return `<div class="sc-row"><span class="sc-name">${esc(s)}</span>
         <div class="sc-bar"><div class="${p < PASS_PCT ? "low" : ""}" style="width:${p}%"></div></div>
-        <span class="sc-val">${ok}/${qs.length} · ${p}\u00a0%</span></div>`;
+        <span class="sc-val">${ok}/${qs.length} · ${p} %</span></div>`;
     }).join("");
 
+    reviewFilter = "all";
     renderReview();
     show("results");
+  }
+
+  // Explanations may cite the original letters ("Option B", "(C)"); rewrite them to the letters shown on screen.
+  function remapLetters(text, i) {
+    const order = state.order[i];
+    const L = id => LETTERS[order.indexOf(id)] || id;
+    return text
+      .replace(/\b(Options?) ([A-D])((?:,? (?:and|or) |, )([A-D]))?/g, (m, w, a, mid, b) => {
+        if (!b) return `${w} ${L(a)}`;
+        const [x, y] = [L(a), L(b)].sort();
+        return `${w} ${x}${mid.replace(b, "")}${y}`;
+      })
+      .replace(/\(([A-D])\)/g, (m, a) => `(${L(a)})`);
   }
 
   function renderReview() {
@@ -320,12 +383,16 @@
       const label = { ok: "Correct", ko: "Incorrect", blank: "Sans réponse" }[status];
       const userLine = status === "ko"
         ? `<p class="rv-ans user-ko"><b>Ta réponse (${letterOf(ans)}) :</b> ${esc(textOf(ans))}</p>` : "";
+      const others = state.order[i].map((id, pos) => ({ id, pos }))
+        .filter(o => o.id !== q.correct && o.id !== ans)
+        .map(o => `<li><b>${LETTERS[o.pos]}.</b> ${esc(textOf(o.id))}</li>`).join("");
       return `<li class="rv ${status}">
         <div class="rv-head"><span class="rv-num">Question ${q.n} · ${esc(q.scenario)}</span><span class="rv-status">${label}</span></div>
-        <p class="rv-situation">${esc(q.situation)} <b>${esc(q.question)}</b></p>
+        <p class="rv-situation">${rich(q.situation)}${q.question ? ` <b>${esc(q.question)}</b>` : ""}</p>
         ${userLine}
         <p class="rv-ans correct"><b>Bonne réponse (${letterOf(q.correct)}) :</b> ${esc(textOf(q.correct))}</p>
-        <p class="rv-why"><b>Pourquoi :</b> ${esc(q.explanation)}</p>
+        <details class="rv-others"><summary>Autres options</summary><ul>${others}</ul></details>
+        <p class="rv-why"><b>Pourquoi :</b> ${esc(remapLetters(q.explanation, i))}</p>
       </li>`;
     }).join("");
   }
@@ -335,6 +402,7 @@
     return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]))
       .replace(/`([^`]+)`/g, "<code>$1</code>");
   }
+  function rich(s) { return esc(s).replace(/\n\n/g, "<br><br>"); }
 
   // ---------- Events ----------
   $("prev").onclick = () => goTo(state.current - 1);
@@ -344,16 +412,17 @@
   $("modal-ok").onclick = submit;
   $("timer").onclick = togglePause;
   $("resume").onclick = togglePause;
+  $("home-link").onclick = renderHome;
   $("sidebar-toggle").onclick = () => $("sidebar").classList.contains("open") ? closeSidebar() : openSidebar();
-  $("restart").onclick = () => { state = freshState(); save(); reviewFilter = "all"; startExam(); };
+  $("restart").onclick = startExam;
+  $("results-home").onclick = renderHome;
   document.querySelectorAll("#filters button").forEach(b => {
     b.onclick = () => { reviewFilter = b.dataset.filter; renderReview(); };
   });
 
   document.addEventListener("keydown", e => {
     if (!$("modal").hidden) { if (e.key === "Escape") closeModal(); return; }
-    if (state.status !== "exam" || $("exam").hidden) return;
-    if (e.target.closest && e.target.closest("input, textarea")) return;
+    if (!state || state.status !== "exam" || $("exam").hidden) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (state.paused) { if (e.key === " " || e.key === "Enter") { e.preventDefault(); togglePause(); } return; }
     const k = e.key.toLowerCase();
@@ -363,11 +432,10 @@
     if (e.key === "ArrowLeft") goTo(state.current - 1);
   });
 
-  // Keep the elapsed time accurate when the tab is closed or hidden.
-  window.addEventListener("pagehide", save);
-  document.addEventListener("visibilitychange", () => { if (document.hidden) save(); });
+  window.addEventListener("pagehide", () => { if (state && state.status === "exam") save(); });
+  document.addEventListener("visibilitychange", () => { if (document.hidden && state && state.status === "exam") save(); });
 
   // ---------- Boot ----------
-  if (state.status === "results") renderResults();
-  else renderHome();
+  migrateLegacy();
+  renderHome();
 })();

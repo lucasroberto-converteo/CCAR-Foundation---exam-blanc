@@ -12,24 +12,22 @@
 <body>
   <!-- Accueil -->
   <main id="home" class="screen" hidden>
-    <div class="home-card">
-      <p class="home-kicker">Examen blanc</p>
-      <h1>Claude Certified Architect</h1>
-      <p class="home-lead">60 questions à choix unique, réparties sur 4 scénarios. Tu peux revenir sur n'importe quelle question avant de soumettre ; les résultats s'affichent seulement à la fin.</p>
-      <dl class="home-facts">
-        <div><dt>Questions</dt><dd>60</dd></div>
-        <div><dt>Durée conseillée</dt><dd>120 min</dd></div>
-        <div><dt>Seuil de réussite</dt><dd>72 %</dd></div>
-      </dl>
-      <ul class="home-scenarios" id="home-scenarios"></ul>
-      <p class="home-note">Le chrono démarre au lancement. Il ne bloque rien : une fois les 120 minutes écoulées, il passe en négatif. Clique dessus pour le mettre en pause.</p>
-      <div class="home-actions" id="home-actions"></div>
+    <div class="home-inner">
+      <header class="home-head">
+        <p class="home-kicker">Examens blancs</p>
+        <h1>Claude Certified Architect</h1>
+        <p class="home-lead">Choisis un examen. Tu peux revenir sur n'importe quelle question avant de soumettre&nbsp;; les résultats s'affichent seulement à la fin. Les réponses sont mélangées à chaque tentative.</p>
+        <p class="home-note">Chrono de 120 minutes, non bloquant : il passe en négatif une fois le temps écoulé. Clique dessus pour le mettre en pause. Seuil de réussite&nbsp;: 72&nbsp;%. Ta progression est gardée dans ce navigateur.</p>
+      </header>
+      <ul class="exam-list" id="exam-list"></ul>
     </div>
   </main>
 
   <!-- Examen -->
   <div id="exam" class="screen exam" hidden>
     <aside class="sidebar" id="sidebar" aria-label="Navigation des questions">
+      <button class="home-link" id="home-link" type="button">‹ Accueil</button>
+      <p class="exam-name" id="exam-name"></p>
       <div class="sidebar-head">
         <span class="sidebar-title">Questions</span>
         <span class="sidebar-count" id="answered-count"></span>
@@ -82,6 +80,10 @@
   <!-- Résultats -->
   <main id="results" class="screen results" hidden>
     <div class="results-inner">
+      <div class="results-top">
+        <button class="btn btn-ghost" id="results-home">‹ Accueil</button>
+        <span class="results-exam" id="results-exam"></span>
+      </div>
       <section class="score-block">
         <p class="verdict" id="verdict"></p>
         <div class="score-main">
@@ -96,7 +98,7 @@
       </section>
 
       <section class="by-scenario">
-        <h2>Par scénario</h2>
+        <h2 id="sections-title">Par scénario</h2>
         <div id="scenario-scores"></div>
       </section>
 
@@ -113,7 +115,8 @@
       </section>
 
       <div class="results-actions">
-        <button class="btn btn-primary" id="restart">Recommencer l'examen</button>
+        <button class="btn btn-ghost" id="results-home-2" onclick="document.getElementById('results-home').click()">Retour à l'accueil</button>
+        <button class="btn btn-primary" id="restart">Recommencer cet examen</button>
       </div>
     </div>
   </main>
@@ -130,7 +133,8 @@
     </div>
   </div>
 
-  <script src="questions.js"></script>
+  <script src="data/exam1.js"></script>
+  <script src="data/exam2.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
